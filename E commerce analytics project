@@ -1,0 +1,427 @@
+# Project Structure
+
+```text
+ecommerce-analytics-dashboard/
+│
+├── data/
+│   ├── orders.csv
+│   ├── customers.csv
+│   ├── products.csv
+│   └── processed_sales.csv
+│
+├── sql/
+│   ├── schema.sql
+│   ├── etl_pipeline.sql
+│   ├── rfm_segmentation.sql
+│   └── kpi_queries.sql
+│
+├── src/
+│   ├── data_cleaning.py
+│   ├── feature_engineering.py
+│   ├── rfm_analysis.py
+│   ├── forecasting.py
+│   ├── kpi_generator.py
+│   └── utils.py
+│
+├── notebooks/
+│   └── ecommerce_analysis.ipynb
+│
+├── dashboard/
+│   └── Executive_Dashboard.pbix
+│
+├── outputs/
+│   ├── sales_forecast.csv
+│   ├── customer_segments.csv
+│   └── executive_kpis.csv
+│
+├── requirements.txt
+├── main.py
+└── README.md
+```
+
+---
+
+# Dataset Schema
+
+### orders.csv
+
+```csv
+OrderID,CustomerID,ProductID,OrderDate,Quantity,UnitPrice
+```
+
+### customers.csv
+
+```csv
+CustomerID,CustomerName,Region,SignupDate
+```
+
+### products.csv
+
+```csv
+ProductID,Category,ProductName
+```
+
+---
+
+# 1. SQL Data Warehouse Design
+
+## schema.sql
+
+```sql
+CREATE TABLE Customers(
+    CustomerID VARCHAR(50) PRIMARY KEY,
+    CustomerName VARCHAR(255),
+    Region VARCHAR(100),
+    SignupDate DATE
+);
+
+CREATE TABLE Products(
+    ProductID VARCHAR(50) PRIMARY KEY,
+    ProductName VARCHAR(255),
+    Category VARCHAR(100)
+);
+
+CREATE TABLE Orders(
+    OrderID VARCHAR(50) PRIMARY KEY,
+    CustomerID VARCHAR(50),
+    ProductID VARCHAR(50),
+    OrderDate DATE,
+    Quantity INT,
+    UnitPrice FLOAT
+);
+```
+
+---
+
+# 2. Automated ETL Pipeline
+
+## etl_pipeline.sql
+
+```sql
+CREATE TABLE Sales_Fact AS
+
+SELECT
+o.OrderID,
+o.CustomerID,
+o.ProductID,
+o.OrderDate,
+o.Quantity,
+o.UnitPrice,
+(o.Quantity * o.UnitPrice) AS Revenue,
+c.Region,
+p.Category
+
+FROM Orders o
+JOIN Customers c
+ON o.CustomerID = c.CustomerID
+
+JOIN Products p
+ON o.ProductID = p.ProductID;
+```
+
+---
+
+# 3. Data Cleaning
+
+## data_cleaning.py
+
+```python
+import pandas as pd
+
+orders = pd.read_csv("data/orders.csv")
+
+orders.drop_duplicates(inplace=True)
+
+orders["OrderDate"] = pd.to_datetime(
+    orders["OrderDate"]
+)
+
+orders["Revenue"] = (
+    orders["Quantity"] *
+    orders["UnitPrice"]
+)
+
+orders.to_csv(
+    "data/processed_sales.csv",
+    index=False
+)
+
+print("Data cleaned successfully")
+```
+
+---
+
+# 4. RFM Customer Segmentation
+
+## rfm_analysis.py
+
+```python
+import pandas as pd
+from sklearn.cluster import KMeans
+from datetime import datetime
+
+df = pd.read_csv(
+    "data/processed_sales.csv"
+)
+
+df["OrderDate"] = pd.to_datetime(
+    df["OrderDate"]
+)
+
+snapshot = df["OrderDate"].max()
+
+rfm = df.groupby("CustomerID").agg({
+    "OrderDate":
+        lambda x: (snapshot - x.max()).days,
+    "OrderID":"count",
+    "Revenue":"sum"
+})
+
+rfm.columns = [
+    "Recency",
+    "Frequency",
+    "Monetary"
+]
+
+kmeans = KMeans(
+    n_clusters=5,
+    random_state=42
+)
+
+rfm["Segment"] = kmeans.fit_predict(rfm)
+
+rfm.to_csv(
+    "outputs/customer_segments.csv"
+)
+
+print(rfm.head())
+```
+
+---
+
+# 5. KPI Generation
+
+## kpi_generator.py
+
+```python
+import pandas as pd
+
+df = pd.read_csv(
+    "data/processed_sales.csv"
+)
+
+gmv = df["Revenue"].sum()
+
+orders = df["OrderID"].nunique()
+
+customers = df["CustomerID"].nunique()
+
+aov = gmv/orders
+
+kpis = pd.DataFrame({
+    "Metric":[
+        "GMV",
+        "Orders",
+        "Customers",
+        "AOV"
+    ],
+    "Value":[
+        gmv,
+        orders,
+        customers,
+        aov
+    ]
+})
+
+kpis.to_csv(
+    "outputs/executive_kpis.csv",
+    index=False
+)
+```
+
+---
+
+# 6. Sales Forecasting (ARIMA)
+
+## forecasting.py
+
+```python
+import pandas as pd
+
+from statsmodels.tsa.arima.model import ARIMA
+
+df = pd.read_csv(
+    "data/processed_sales.csv"
+)
+
+df["OrderDate"] = pd.to_datetime(
+    df["OrderDate"]
+)
+
+sales = df.groupby(
+    "OrderDate"
+)["Revenue"].sum()
+
+model = ARIMA(
+    sales,
+    order=(5,1,0)
+)
+
+model_fit = model.fit()
+
+forecast = model_fit.forecast(
+    steps=365
+)
+
+forecast.to_csv(
+    "outputs/sales_forecast.csv"
+)
+
+print("Forecast complete")
+```
+
+---
+
+# 7. Advanced KPI SQL
+
+## kpi_queries.sql
+
+### GMV
+
+```sql
+SELECT
+SUM(Revenue) AS GMV
+FROM Sales_Fact;
+```
+
+### Category Contribution
+
+```sql
+SELECT
+Category,
+SUM(Revenue) Revenue
+FROM Sales_Fact
+GROUP BY Category;
+```
+
+### Regional Revenue
+
+```sql
+SELECT
+Region,
+SUM(Revenue) Revenue
+FROM Sales_Fact
+GROUP BY Region;
+```
+
+### Top Customers
+
+```sql
+SELECT
+CustomerID,
+SUM(Revenue) Revenue
+FROM Sales_Fact
+GROUP BY CustomerID
+ORDER BY Revenue DESC
+LIMIT 20;
+```
+
+---
+
+# 8. Power BI Dashboard
+
+Create these pages:
+
+### Executive Overview
+
+* GMV
+* Revenue Growth %
+* Orders
+* Customers
+* AOV
+
+### Customer Analytics
+
+* RFM Segments
+* Repeat Customers
+* LTV Analysis
+
+### Product Analytics
+
+* Top Categories
+* Top Products
+* Contribution %
+
+### Regional Analytics
+
+* Revenue by Region
+* Orders by Region
+
+### Forecasting
+
+* Historical Revenue
+* 12-Month Forecast
+* Trend Analysis
+
+---
+
+# 9. DAX Measures
+
+```DAX
+GMV =
+SUM(Sales_Fact[Revenue])
+
+Orders =
+DISTINCTCOUNT(Sales_Fact[OrderID])
+
+Customers =
+DISTINCTCOUNT(Sales_Fact[CustomerID])
+
+AOV =
+DIVIDE([GMV],[Orders])
+
+Revenue Growth % =
+DIVIDE(
+    [GMV]-CALCULATE(
+        [GMV],
+        PREVIOUSMONTH(Date[Date])
+    ),
+    CALCULATE(
+        [GMV],
+        PREVIOUSMONTH(Date[Date])
+    )
+)
+```
+
+---
+
+# 10. Main Pipeline
+
+## main.py
+
+```python
+import subprocess
+
+print("Cleaning Data")
+subprocess.run(
+    ["python","src/data_cleaning.py"]
+)
+
+print("Running RFM")
+subprocess.run(
+    ["python","src/rfm_analysis.py"]
+)
+
+print("Generating KPIs")
+subprocess.run(
+    ["python","src/kpi_generator.py"]
+)
+
+print("Forecasting Sales")
+subprocess.run(
+    ["python","src/forecasting.py"]
+)
+
+print("Project Completed")
+
+This is substantially stronger than a typical fresher dashboard project and aligns well with Data Analyst, Business Analyst, and Analytics Engineer entry-level roles.
